@@ -2,8 +2,6 @@ import pickle
 from collections import UserDict
 from datetime import datetime, timedelta, date
 
-SAVE_FILE = "addressbook.pkl"
-
 class Field:
     def __init__(self, value):
         self.value = value
@@ -23,10 +21,10 @@ class Phone(Field):
 class Birthday(Field):
     def __init__(self, value):
         try:
-            parsed_date = datetime.strptime(value, "%d.%m.%Y").date()
+            datetime.strptime(value, "%d.%m.%Y").date()
         except ValueError:
             raise ValueError("Invalid date format. Use DD.MM.YYYY")
-        super().__init__(parsed_date)
+        super().__init__(value)
 
 class Record:
     def __init__(self, name):
@@ -62,14 +60,15 @@ class Record:
         if not self.birthday:
             return None
         today = date.today()
-        next_birthday = self.birthday.value.replace(year=today.year)
+        bday_obj = datetime.strptime(self.birthday.value, "%d.%m.%Y").date()
+        next_birthday = bday_obj.replace(year=today.year)
         if next_birthday < today:
             next_birthday = next_birthday.replace(year=today.year + 1)
         return (next_birthday - today).days
 
     def __str__(self):
         phones_str = '; '.join(str(phone) for phone in self.phones) if self.phones else "No phones"
-        birthday_str = self.birthday.value.strftime("%d.%m.%Y") if self.birthday else "No birthday"
+        birthday_str = str(self.birthday) if self.birthday else "No birthday"
         return f"Contact name: {self.name.value}, phones: {phones_str}, birthday: {birthday_str}"
 
 class AddressBook(UserDict):
@@ -87,24 +86,28 @@ class AddressBook(UserDict):
         today = date.today()
 
         def adjust_for_weekend(d):
-            if d.weekday() == 5:
+            if d.weekday() == 5:  # Saturday
                 return d + timedelta(days=2)
-            elif d.weekday() == 6:
+            elif d.weekday() == 6:  # Sunday
                 return d + timedelta(days=1)
             return d
 
         upcoming = []
 
         for record in self.data.values():
-            if record.birthday is None:
+            if not record.birthday:
                 continue
 
-            bday = record.birthday.value
-            next_birthday = bday.replace(year=today.year)
-            if next_birthday < today:
-                next_birthday = next_birthday.replace(year=today.year + 1)
+            try:
+                bday_obj = datetime.strptime(record.birthday.value, "%d.%m.%Y").date()
+            except ValueError:
+                continue
 
-            next_birthday = adjust_for_weekend(next_birthday)
+            birthday_this_year = bday_obj.replace(year=today.year)
+            if birthday_this_year < today:
+                birthday_this_year = birthday_this_year.replace(year=today.year + 1)
+
+            next_birthday = adjust_for_weekend(birthday_this_year)
             days_diff = (next_birthday - today).days
 
             if 0 <= days_diff <= days:
@@ -121,25 +124,12 @@ class AddressBook(UserDict):
             return "Address book is empty."
         return "\n".join(str(record) for record in self.data.values())
 
-
-def save_data(book, filename=SAVE_FILE):
-    with open(filename, "wb") as f:
-        pickle.dump(book, f)
-
-def load_data(filename=SAVE_FILE):
-    try:
-        with open(filename, "rb") as f:
-            return pickle.load(f)
-    except FileNotFoundError:
-        return AddressBook()
-
-
 def input_error(func):
     def inner(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except ValueError as e:
-            return f"Error: {str(e)}"
+            return f"Error: {e}"
         except KeyError:
             return "Error: Contact not found"
         except IndexError:
@@ -209,7 +199,7 @@ def show_birthday(args, book):
         return f"Contact with name {name} not found"
     if not record.birthday:
         return f"The contact {name} doesn’t have a birthday"
-    return f"Birthday for {name}: {record.birthday.value.strftime('%d.%m.%Y')}"
+    return f"Birthday of {name}: {record.birthday.value}"
 
 @input_error
 def birthdays(args, book):
@@ -221,8 +211,20 @@ def birthdays(args, book):
         result += f"{user['name']}: {user['congratulation_date']}\n"
     return result.strip()
 
+# --- Збереження та завантаження ---
+def save_data(book, filename="addressbook.pkl"):
+    with open(filename, "wb") as f:
+        pickle.dump(book, f)
+
+def load_data(filename="addressbook.pkl"):
+    try:
+        with open(filename, "rb") as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        return AddressBook()
+
 def main():
-    book = load_data()  # <--- завантаження даних при запуску
+    book = load_data()
     print("Welcome to the assistant bot!")
 
     while True:
@@ -230,41 +232,25 @@ def main():
         command, args = parse_input(user_input)
 
         if command in ["close", "exit"]:
-            save_data(book)  # <--- збереження даних перед виходом
+            save_data(book)
             print("Address book saved. Good bye!")
             break
-
         elif command == "hello":
             print("How can I help you?")
-
         elif command == "add":
-            result = add_contact(args, book)
-            print(result)
-
+            print(add_contact(args, book))
         elif command == "change":
-            result = change_contact(args, book)
-            print(result)
-
+            print(change_contact(args, book))
         elif command == "phone":
-            result = show_phone(args, book)
-            print(result)
-
+            print(show_phone(args, book))
         elif command == "all":
-            result = show_all(book)
-            print(result)
-
+            print(show_all(book))
         elif command == "add-birthday":
-            result = add_birthday(args, book)
-            print(result)
-
+            print(add_birthday(args, book))
         elif command == "show-birthday":
-            result = show_birthday(args, book)
-            print(result)
-
+            print(show_birthday(args, book))
         elif command == "birthdays":
-            result = birthdays(args, book)
-            print(result)
-
+            print(birthdays(args, book))
         else:
             print("Unknown command. Try: add, change, phone, all, add-birthday, show-birthday, birthdays, exit")
 
